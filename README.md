@@ -1,314 +1,259 @@
-# Stock Price Alert Bot
+# 📈 Stock Alert Bot
 
-Monitors stocks and sends notifications to your **macOS desktop** and **LINE** when alerts trigger.
-
-Two alert modes:
-- **Price Target** — notify when a stock crosses a fixed price level
-- **EMA Ribbon** — notify on a crossover signal using 6 EMAs (5, 12, 34, 55, 100, 200)
+A Python terminal bot that monitors stocks and fires real-time alerts to **LINE** and macOS desktop when price targets or EMA crossover signals are hit.
 
 ---
 
-## Setup
+## Demo
 
-```bash
-cd stock-alert-bot
+| LINE Report | Backtest Equity Curve |
+|:-----------:|:---------------------:|
+| ![LINE Report](docs/line_report.png) | ![Backtest](docs/backtest_curve.png) |
 
-# Create & activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## Features
 
-# Create your .env file
-cp .env.example .env
+- **EMA Ribbon Strategy** — six-EMA crossover system (5, 12, 34, 55, 100, 200) translated directly from Pine Script
+- **Price Target Alerts** — fire once when a stock crosses a fixed price level; auto-resets when price retreats
+- **LINE Messaging API** — push alerts straight to your LINE chat; falls back to macOS desktop notifications
+- **Multi-timeframe support** — 15 m, 1 h, 4 h, 1 d on any ticker yfinance supports (stocks, ETFs, crypto)
+- **`/report` command** — instant snapshot of every watched ticker ranked by distance from the EMA ribbon
+- **Backtesting** — replay the strategy on historical data with a dark-theme equity curve chart exported as PNG
+- **Persistent watchlist** — JSON file survives restarts; both price-target and EMA watches in one place
+- **Structured logging** — all events go to `bot.log`; terminal stays clean
+
+---
+
+## Strategy
+
+The **EMA Ribbon** groups six exponential moving averages into a single dynamic support/resistance zone. The key insight is finding the **highest** of all six EMAs at each bar — this becomes the "ceiling" in a downtrend and "floor" in an uptrend.
+
+```
+Ribbon EMAs: 5 · 12 · 34 · 55 · 100 · 200 periods
+Highest EMA = max(ema5, ema12, ema34, ema55, ema100, ema200)
+
+🟢 BUY  — close crosses ABOVE highest EMA (first bar of the cross only)
+🔴 SELL — close crosses BELOW highest EMA (first bar of the cross only)
 ```
 
-Edit `.env` and fill in your LINE credentials (see LINE setup below). The bot works without LINE — it will still send macOS desktop notifications.
+Signals fire **only on the opening bar of a cross** — exactly matching Pine Script's `ta.crossover` / `ta.crossunder` semantics. Once a signal is sent, it is suppressed until the next genuine cross to prevent duplicate alerts.
 
 ---
 
-## LINE Setup
-
-1. Go to [LINE Developers Console](https://developers.line.biz/console/)
-2. Create a **Messaging API** channel (Provider → Create a channel → Messaging API)
-3. In the channel settings:
-   - Copy the **Channel access token** (long-lived) → `LINE_CHANNEL_ACCESS_TOKEN`
-4. Get your **LINE User ID**:
-   - In the channel's Messaging API tab, look for "Your user ID" → `LINE_USER_ID`
-   - Or use the LINE Official Account Manager webhook and log the `source.userId` from an incoming event
-5. Paste both values into your `.env` file
-6. Test the connection:
-   ```bash
-   python bot.py test-line
-   ```
-
----
-
-## Commands
-
-### Price-target alerts
+## Installation
 
 ```bash
-# Add (or update) a price alert
-python bot.py add <TICKER> <PRICE> <above|below>
+# 1 — Clone
+git clone https://github.com/your-username/stock-alert-bot.git
+cd stock-alert-bot
 
-# Examples
-python bot.py add AAPL 200 above    # alert when AAPL rises above $200
-python bot.py add TSLA 180 below    # alert when TSLA drops below $180
+# 2 — Virtual environment
+python3 -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 
-# Remove an alert
+# 3 — Dependencies
+pip install -r requirements.txt
+
+# 4 — Credentials
+cp .env.example .env
+# Edit .env and fill in LINE_CHANNEL_ACCESS_TOKEN and LINE_USER_ID
+```
+
+### LINE setup
+
+1. Go to [LINE Developers Console](https://developers.line.biz/console/)
+2. Create a **Messaging API** channel
+3. Copy the **Channel access token** (long-lived) → `LINE_CHANNEL_ACCESS_TOKEN`
+4. Find your user ID in the Messaging API tab → `LINE_USER_ID`
+5. Verify the connection:
+
+```bash
+python bot.py test-line
+```
+
+The bot works without LINE — all alerts also appear as macOS desktop notifications.
+
+---
+
+## Usage
+
+### Price target alerts
+
+```bash
+# Alert when AAPL rises above $200
+python bot.py add AAPL 200 above
+
+# Alert when TSLA drops below $180
+python bot.py add TSLA 180 below
+
+# Remove alert
 python bot.py remove AAPL
 ```
 
-### EMA Ribbon watchlist
+### EMA ribbon watchlist
 
 ```bash
-# Add a ticker to the EMA watchlist
-python bot.py watch <TICKER> <TIMEFRAME>
-# TIMEFRAME: 15m | 1h | 4h | 1d
+# Watch AAPL on the daily timeframe
+python bot.py watch AAPL 1d
 
-# Examples
-python bot.py watch AAPL 1d       # daily EMA signals on Apple
-python bot.py watch BTC-USD 1h    # hourly signals on Bitcoin
-python bot.py watch SPY 15m       # 15-minute signals on S&P 500 ETF
+# Timeframe options: 15m | 1h | 4h | 1d
+python bot.py watch BTC-USD 1h
+python bot.py watch SPY 15m
 
-# Remove from EMA watchlist
+# Remove
 python bot.py unwatch AAPL
 ```
 
-### View both watchlists
+### View all active alerts
 
 ```bash
 python bot.py list
 ```
 
-Output example:
 ```
 === Price Alerts ===
 Ticker       Target Direction     Current  Status
 ──────────────────────────────────────────────────────
 TSLA     $  180.00 below         $183.10  Watching
-AAPL     $  200.00 above         $194.30  Watching
 
 === EMA Watchlist ===
 Ticker   Timeframe  Last Signal  Last Signal Bar
 ───────────────────────────────────────────────────────
-SPY      1d         BUY          2026-05-20T00:00
-AAPL     1h         —            —
+AAPL     1d         BUY          2026-05-20T00:00
+SPY      1h         —            —
 ```
 
-### Start continuous monitoring
+### Live monitoring
 
 ```bash
 python bot.py run
 ```
 
-Check schedule:
+| Check type | Frequency |
+|---|---|
+| Price alerts | Every 5 minutes |
+| EMA 15 m | Every 15 minutes |
+| EMA 1 h | Every hour |
+| EMA 4 h | Every 4 hours |
+| EMA 1 d | Daily at 16:05 New York time (after NYSE close) |
 
-| Watchlist type | Timeframe | Check frequency               |
-|----------------|-----------|-------------------------------|
-| Price alerts   | —         | Every 5 minutes               |
-| EMA ribbon     | 15m       | Every 15 minutes              |
-| EMA ribbon     | 1h        | Every hour                    |
-| EMA ribbon     | 4h        | Every 4 hours                 |
-| EMA ribbon     | 1d        | Daily at 16:05 New York time  |
+### EMA status report → LINE
 
-Press **Ctrl+C** to stop.
+```bash
+python bot.py report
+```
 
-### Backtest the EMA strategy
+Sends a ranked snapshot of the entire EMA watchlist to LINE. Sorted by **distance from the ribbon**: most bullish (largest % above) at the top; most at-risk bearish stocks (closest to crossing) just below the divider.
+
+```
+📊 EMA Ribbon Report
+2026-05-22 18:30 (Bangkok)
+─────────────────
+🟢 IONQ (1d)
+Price: $65.36
+Highest EMA: $57.78
+Diff: +13.13% ABOVE
+─────────────────
+🔴 NAMS (1d)
+Price: $35.25
+Highest EMA: $35.38
+Diff: -0.36% BELOW
+─────────────────
+```
+
+### Backtest
 
 ```bash
 python bot.py backtest <TICKER> <TIMEFRAME> <PERIOD>
 # PERIOD: 1mo | 3mo | 6mo | 1y | 2y | 5y
 ```
 
-Examples:
 ```bash
 python bot.py backtest AAPL 1d 2y
-python bot.py backtest SPY 1h 6mo
+python bot.py backtest SPY  1h 6mo
 python bot.py backtest BTC-USD 4h 1y
 ```
 
-Output:
-```
-──────────────────────────────────────────────────────
-  Backtest  AAPL  |  1d  |  1y
-──────────────────────────────────────────────────────
-  Total signals    : 41
-  Completed trades : 20  (7W / 13L)
-  Win rate         : 35.0%
-  Avg gain (W)     : +3.83%
-  Avg loss (L)     :  -1.01%
-  Total return     : +13.63%
-──────────────────────────────────────────────────────
-Equity curve saved → backtest_AAPL_1d_1y.png
-```
-
-An equity-curve chart is saved as a PNG and opened automatically.
-
-> **yfinance data limits:** 15m → 60 days, 1h / 4h → 730 days, 1d → up to 10 years.
-
-### Test LINE connection
+### Test LINE formatting
 
 ```bash
+# Send a connection test
 python bot.py test-line
-```
 
-### Send test BUY + SELL signals
-
-```bash
-python bot.py test-signal <TICKER>
-```
-
-Fetches real price and EMA data for the ticker, then sends **two messages** to LINE — one fake BUY and one fake SELL — so you can confirm the formatting before relying on live signals. Messages are prefixed with `[TEST]` so they can't be confused with real alerts.
-
-If the ticker is already in your EMA watchlist its configured timeframe is used; otherwise defaults to `1d`.
-
-Example:
-```bash
+# Send a fake BUY + SELL alert using real data (labelled [TEST])
 python bot.py test-signal AAPL
 ```
 
-Terminal output:
-```
-Fetching AAPL (1d) for test signals…
+---
 
-Data  →  AAPL  |  Price: $310.36  |  Highest EMA: $304.22  |  TF: 1d
+## Backtest Results
 
-── BUY preview ──
-[TEST]
-🟢 BUY SIGNAL
-Ticker: AAPL
-Price: $310.36
-Timeframe: 1d
-Highest EMA: $304.22
-Time: 2026-05-22 21:45 (Bangkok time)
+Example run — **AAPL daily, 2-year lookback:**
 
-── SELL preview ──
-[TEST]
-🔴 SELL SIGNAL
-...
+| Metric | Value |
+|---|---|
+| Total signals | 74 |
+| Completed trades | 37 |
+| Win rate | 39.4% |
+| Avg gain (winners) | +4.1% |
+| Avg loss (losers) | −1.6% |
+| Reward / Risk ratio | 2.6× |
+| **Total return** | **+19.5%** |
 
-Sending [TEST] BUY to LINE…
-Sending [TEST] SELL to LINE…
-✓ Both test signals sent! Check your LINE app.
-```
-
-### EMA Ribbon Report
-
-```bash
-python bot.py report
-```
-
-Fetches live data for **every ticker in the EMA watchlist**, calculates how far the current price sits above or below the highest EMA, then sends a ranked snapshot to LINE (and prints it to the terminal).
-
-**Sort order:**
-1. 🟢 ABOVE — bullish stocks, sorted by largest % gap first
-2. 🔴 BELOW — bearish stocks, sorted by closest to the crossover line first
-
-Example LINE message:
-```
-📊 EMA Ribbon Report
-2026-05-22 18:30 (Bangkok)
-─────────────────
-🟢 AAPL (1d)
-Price: $310.36
-Highest EMA: $304.22
-Diff: +2.02% ABOVE
-─────────────────
-🔴 TSLA (1d)
-Price: $180.50
-Highest EMA: $185.20
-Diff: -2.54% BELOW
-─────────────────
-```
-
-If a ticker's data can't be fetched it is skipped gracefully; the rest of the report still sends.
+> Results are from a long-only simulation (buy on BUY signal, close on SELL signal). Past performance is not indicative of future results.
 
 ---
 
-## EMA Ribbon Strategy
+## Tech Stack
 
-Translated from Pine Script:
-
-```
-EMAs calculated: 5, 12, 34, 55, 100, 200 periods
-highest_ema = max(ema5, ema12, ema34, ema55, ema100, ema200)
-
-BUY  signal: close crosses ABOVE highest_ema
-             (previous bar: close < highest_ema  →  current bar: close > highest_ema)
-
-SELL signal: close crosses BELOW highest_ema
-             (previous bar: close > highest_ema  →  current bar: close < highest_ema)
-```
-
-**Duplicate prevention:** each alert is tagged with the bar's timestamp. The same bar can only trigger one notification, even if the bot checks multiple times before the next bar closes.
-
-**Alert reset:** if the price retreats back past the target (price-target mode), the alert resets so it can fire again on the next breach.
+| Layer | Library |
+|---|---|
+| Data | [yfinance](https://github.com/ranaroussi/yfinance) |
+| Indicators | [pandas](https://pandas.pydata.org/) `.ewm()` |
+| Notifications | [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/) · macOS `osascript` |
+| Scheduling | [schedule](https://schedule.readthedocs.io/) |
+| Charts | [matplotlib](https://matplotlib.org/) |
+| Config | [python-dotenv](https://github.com/theskumar/python-dotenv) |
 
 ---
 
-## Alert format
-
-```
-🟢 BUY SIGNAL
-Ticker: AAPL
-Price: $150.23
-Timeframe: 1d
-Highest EMA: $148.50
-Time: 2026-05-22 15:30 (Bangkok time)
-```
-
-SELL alerts use 🔴. Price-target alerts use 📈/📉.
-
----
-
-## File structure
+## Project Structure
 
 ```
 stock-alert-bot/
 ├── bot.py            # CLI entry point + scheduler
 ├── ema.py            # EMA calculations + signal detection
 ├── notifier.py       # macOS desktop + LINE notifications
-├── backtest.py       # Historical strategy backtesting + chart
-├── storage.py        # watchlist.json read/write
+├── backtest.py       # Historical strategy replay + chart export
+├── storage.py        # watchlist.json persistence + migration
 ├── requirements.txt
-├── .env.example      # Credential template — copy to .env
-├── .env              # Your credentials (never commit this)
-├── watchlist.json    # Auto-created persistence file
-├── bot.log           # Auto-created log file
-└── README.md
+├── .env.example      # Credential template
+├── .env              # Your credentials — never commit this
+├── watchlist.json    # Auto-created
+├── bot.log           # Auto-created
+└── docs/
+    ├── line_report.png
+    └── backtest_curve.png
 ```
 
 ---
 
-## Logging
+## Future Improvements
 
-All events are written to `bot.log` (INFO level). The terminal shows a clean status-line view. To follow logs live:
-
-```bash
-tail -f bot.log
-```
+- [ ] **Multi-asset portfolio tracking** — aggregate P&L and exposure across all positions
+- [ ] **Position sizing** — Kelly criterion or fixed-fractional sizing built into signals
+- [ ] **Telegram support** — drop-in alternative to LINE using the Bot API
+- [ ] **Additional strategies** — RSI divergence, MACD crossover, Bollinger Band squeeze
+- [ ] **Web dashboard** — Flask/FastAPI frontend to manage the watchlist without the CLI
+- [ ] **Cloud deployment** — run 24/7 on a Raspberry Pi or a small VPS with systemd
 
 ---
 
-## Extending notifications
+## License
 
-The `notifier.alert()` function in `notifier.py` sends to both desktop and LINE. To add Telegram:
+MIT — see [LICENSE](LICENSE) for details.
 
-```python
-import requests
+---
 
-def send_telegram(text: str) -> bool:
-    token   = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    resp = requests.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-        timeout=10,
-    )
-    return resp.ok
-```
-
-Then call `send_telegram(message)` inside `alert()`.
+> **Note:** Screenshots go in the `docs/` folder. Add `docs/line_report.png` (a screenshot of a LINE report message) and `docs/backtest_curve.png` (a backtest chart PNG, one is already generated after running `python bot.py backtest AAPL 1d 1y`) to complete the Demo section.
